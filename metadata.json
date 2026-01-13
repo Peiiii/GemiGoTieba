@@ -1,0 +1,5 @@
+{
+  "name": "GemiGo Tieba",
+  "description": "A community forum application built on the GemiGo SDK featuring authentication, real-time database, and cursor-based pagination.",
+  "requestFramePermissions": []
+}
