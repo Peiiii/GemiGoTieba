@@ -6,6 +6,8 @@ import Navbar from './components/Navbar';
 import ThreadCard from './components/ThreadCard';
 import CreatePostModal from './components/CreatePostModal';
 
+const STORAGE_KEY = 'gemigo_tieba_user';
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -16,6 +18,7 @@ const App: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentContent, setCommentContent] = useState('');
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const addLog = (msg: string) => {
     setDebugLog(prev => [msg, ...prev].slice(0, 8));
@@ -34,6 +37,10 @@ const App: React.FC = () => {
       addLog(`Loaded ${res.data.length} posts ${append ? '(append)' : '(fresh)'}`);
     } catch (err: any) {
       addLog(`Fetch Error: ${err.message}`);
+      // If DB fails and we thought we were logged in, it might be an expired session
+      if (err.message?.includes('401') || err.message?.includes('unauthorized')) {
+        handleLogout();
+      }
     } finally {
       setLoading(false);
     }
@@ -49,10 +56,37 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Initialize app: Check for existing session
+  useEffect(() => {
+    const init = async () => {
+      const savedUser = localStorage.getItem(STORAGE_KEY);
+      if (savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+          addLog(`Restored session for ${parsedUser.appUserId}`);
+          // Note: We'll trigger loadPosts in a separate effect once user is set
+        } catch (e) {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+      setIsInitializing(false);
+    };
+    init();
+  }, []);
+
+  // Auto-load posts when user becomes available
+  useEffect(() => {
+    if (user && !loading && posts.length === 0 && !selectedPostId) {
+      loadPosts(false);
+    }
+  }, [user, loadPosts]);
+
   const handleLogin = async () => {
     try {
       const u = await GemigoService.login();
       setUser(u);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
       addLog(`Successfully authorized as ${u.appUserId}`);
       loadPosts(false);
     } catch (err: any) {
@@ -62,10 +96,11 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     GemigoService.logout();
+    localStorage.removeItem(STORAGE_KEY);
     setUser(null);
     setPosts([]);
     setSelectedPostId(null);
-    addLog('Logged out and state cleared');
+    addLog('Logged out and storage cleared');
   };
 
   const handleCreatePost = async (title: string, body: string, visibility: 'public' | 'private') => {
@@ -104,6 +139,17 @@ const App: React.FC = () => {
   };
 
   const selectedPost = posts.find(p => p._id === selectedPostId);
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-400 font-bold animate-pulse uppercase tracking-widest text-xs">Initializing Session...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20 selection:bg-blue-100 selection:text-blue-900">
